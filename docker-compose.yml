@@ -1,44 +1,44 @@
 services:
 
-  backend:
+  # backend:
 
-    build:
-      context: ./backend
+  #   build:
+  #     context: ./backend
 
-    container_name: search-backend
+  #   container_name: search-backend
 
-    ports:
-      - "8000:8000"
+  #   ports:
+  #     - "8000:8000"
 
-    depends_on:
+  #   depends_on:
 
-      milvus-standalone:
+  #     milvus-standalone:
 
-        condition: service_healthy
+  #       condition: service_healthy
 
-    environment:
+  #   environment:
 
-      PYTHONUNBUFFERED: 1
+  #     PYTHONUNBUFFERED: 1
 
-    networks:
-      - search-network
+  #   networks:
+  #     - search-network
 
 
-  frontend:
+  # frontend:
 
-    build:
-      context: ./frontend
+  #   build:
+  #     context: ./frontend
 
-    container_name: search-frontend
+  #   container_name: search-frontend
 
-    ports:
-      - "5173:5173"
+  #   ports:
+  #     - "5173:5173"
 
-    depends_on:
-      - backend
+  #   depends_on:
+  #     - backend
 
-    networks:
-      - search-network
+  #   networks:
+  #     - search-network
 
 
   milvus-etcd:

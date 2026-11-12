@@ -170,10 +170,8 @@ def generate_subtopic_names(
 def root():
 
     return {
-
         "message":
         "Backend running"
-
     }
 
 
@@ -183,45 +181,33 @@ def ping():
     print(
         "PING HIT"
     )
-
     return {
-
         "status":
         "alive"
-
     }
-
 
 @app.get("/list_collections")
 def collections_api():
 
     return {
-
         "collections":
         list_collections()
-
     }
-
-
+    
 @app.post("/test")
 async def test():
 
     print(
         "TEST HIT"
     )
-
     return {
-
         "ok": True
-
     }
-
 
 @app.post("/search")
 async def search(
     query: Query
 ):
-
     try:
 
         print("SEARCH HIT START")
@@ -246,7 +232,6 @@ async def search(
             expr_parts.append(
                 f"doc_type == '{query.doc_type}'"
             )
-
         if query.citation_min:
 
             expr_parts.append(
@@ -257,43 +242,34 @@ async def search(
             query.field_of_research
             and query.field_of_research != ""
         ):
-
             expr_parts.append(
                 f"field_of_research like '%{query.field_of_research}%'"
             )
 
         expr = None
-
         if expr_parts:
 
             expr = " and ".join(
                 expr_parts
             )
-
+            
         print("MILVUS SEARCH")
-
         results = collection.search(
-
             data=[query_vector],
 
             anns_field="vector",
 
             param={
-
                 "metric_type": "L2",
 
                 "params": {
 
                     "nprobe": 10
-
                 }
-
             },
 
             limit=10,
-
             expr=expr,
-
             output_fields=[
 
                 "title",
@@ -309,21 +285,16 @@ async def search(
                 "field_of_research",
 
                 "sub_topic"
-
             ]
-
         )
 
         print("MILVUS DONE")
-
         documents = []
-
         for hit in results[0]:
 
             entity = hit.entity
 
             documents.append({
-
                 "id":
                 str(hit.id),
 
@@ -367,25 +338,19 @@ async def search(
         )
 
         documents = rerank_documents(
-
             query.text,
             documents
-
         )
 
         summary = generate_rag_summary(
-
             query.text,
             documents
-
         )
 
         trends = defaultdict(
             lambda: defaultdict(int)
         )
-
         for doc in documents:
-
             topic = doc.get(
                 "sub_topic",
                 "General"
@@ -397,19 +362,15 @@ async def search(
                     "pub_date",
                     ""
                 )
-
             )[:4]
 
             if year:
-
                 trends[
                     topic
                 ][
                     year
                 ] += 1
-
         trends = {
-
             topic:
 
             dict(years)
@@ -417,11 +378,9 @@ async def search(
             for topic, years
 
             in trends.items()
-
         }
 
         return {
-
             "documents":
             documents,
 
@@ -432,15 +391,11 @@ async def search(
 
             "ai_summary":
             summary
-
         }
 
     except Exception:
-
         print(
             "SEARCH FAILED"
         )
-
         traceback.print_exc()
-
         raise
