@@ -42,6 +42,16 @@ The platform supports:
 
 ---
 
+## 📸 UI Previews & Screenshots
+
+### Frontend Dashboard & Filters
+![Frontend Dashboard](docs/screenshots/Frontend/frontend-dashboard-filters.png)
+
+### Sub-Topics Trend Analytics
+![Sub-Topics Trends](docs/screenshots/Frontend/sub-topics-trends.png)
+
+---
+
 # 🧠 RAG Pipeline
 
 The system integrates **Retrieval Augmented Generation (RAG)** to generate summaries from retrieved research papers.
