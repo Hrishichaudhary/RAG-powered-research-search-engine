@@ -45,10 +45,10 @@ The platform supports:
 ## 📸 UI Previews & Screenshots
 
 ### Frontend Dashboard & Filters
-![Frontend Dashboard](docs/screenshots/Frontend/frontend-dashboard-filters.png)
+![Frontend Dashboard](docs/screenshots/Frontend/Frontend-Dashboard.png)
 
 ### Sub-Topics Trend Analytics
-![Sub-Topics Trends](docs/screenshots/Frontend/sub-topics-trends.png)
+![Sub-Topics Trends](docs/screenshots/Frontend/Sub-Topics%20Trends.png)
 
 ---
 
