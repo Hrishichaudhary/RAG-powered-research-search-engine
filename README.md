@@ -48,7 +48,7 @@ The platform supports:
 ![Frontend Dashboard](docs/screenshots/Frontend/Frontend-Dashboard.png)
 
 ### Search Results & RAG Summaries
-![Search Results](docs/screenshots/Frontend/search-results.png)
+![Search Results](docs/screenshots/Frontend/Frontend-Dashboard-working-for-both-filter%28papers%26patents%29.png)
 
 ### Sub-Topics Trend Analytics
 ![Sub-Topics Trends](docs/screenshots/Frontend/Sub-Topics%20Trends.png)
