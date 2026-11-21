@@ -86,7 +86,7 @@ search-platform/
 # ⚙️ Running Locally:
 
 #### Start Milvus + MinIO
-    From the project root run:
+* From the project root run:
         docker-compose up -d
 
 ---
