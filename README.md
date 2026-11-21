@@ -174,9 +174,9 @@ This will:
 
 ### What Could Be Improved
 
-###### Hybrid retrieval (dense + BM25/keyword):
+- Hybrid retrieval (dense + BM25/keyword):
 * Helps exact patent numbers, chemical/technical codes, or specific terms that pure embedding similarity can miss.
-###### Public backend deployment & automated RAG evals:
+- Public backend deployment & automated RAG evals:
 * Moving off localhost for external access and adding a fixed test set (retrieval recall/MRR + answer groundedness) instead of relying only on manual/API checks.
 
 ---
