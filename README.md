@@ -1,44 +1,36 @@
-# 🚀 AI-Powered Semantic Search & Research Analytics Platform
+# AI-Powered Semantic Search & Research Analytics Platform
 
 ## 📝 Project Overview
+An AI-powered search and analytics engine for indexing, retrieving, and summarizing patents and research papers using vector similarity search, cross-encoder reranking, and Retrieval-Augmented Generation (RAG). Users can run natural language queries, apply metadata filters, inspect publication/sub-topic trends, ingest documents with recursive chunking, and generate contextual summaries using a local LLM via Ollama.
 
-The **Semantic Search & RAG Research Platform** is a modern AI-powered search engine designed to index and retrieve **patents and research papers** using **vector search and Retrieval Augmented Generation (RAG)**.
+## ✨ Key Features
+- **Semantic Search & Real-Time Ingestion:** Vector search over `all-MiniLM-L6-v2` embeddings in Milvus (`POST /search`), plus chunked document ingestion (`POST /ingest`) and health checks (`GET /health`).
+- **Recursive Chunking & Parent Deduplication:** Splits long text with overlap while preserving metadata, and deduplicates reranked chunks by parent document so one document doesn't crowd out top results.
+- **Two-Stage Retrieval + Reranking:** Combines Milvus vector retrieval (`IVF_FLAT`, `L2`) with cross-encoder reranking (`cross-encoder/ms-marco-MiniLM-L-6-v2`).
+- **Metadata Filtering:** Filter by document type (`paper`, `patent`, or `both`), citation count threshold, and field of research.
+- **Trend & Sub-Topic Analytics:** Tracks publication year distributions by sub-topic and visualizes trends in Nuxt.js with Chart.js.
+- **Local RAG Summaries:** Generates grounded summaries from top-ranked results using Ollama without recurring paid LLM API costs.
 
-The system allows users to perform **natural language queries**, retrieve semantically relevant documents, analyze research trends, and generate **AI-powered summaries of search results using a local LLM**.
-
-This platform demonstrates how modern AI systems combine **vector databases, embeddings, and large language models** to build intelligent research tools.
-
----
-
-# 🔍 System Features
-
-### Backend
-Built with **FastAPI**, integrated with:
-
-- **Milvus** for high-performance vector search
-- **Sentence Transformers** for semantic embeddings
-- **Ollama (local LLM)** for RAG-based summaries
-- **Scikit-learn** for clustering and trend analysis
-- **MinIO** for file storage
-
-### Frontend
-Developed using:
-
-- **Nuxt.js (Vue 3)**
-- **Tailwind CSS**
-- **Chart.js** for trend visualization
-
-### AI Capabilities
-
-The platform supports:
-
-- 🔍 Semantic search using vector embeddings
-- 🧠 Automatic sub-topic generation and clustering
-- 📈 Research trend analytics with sub-topic heatmaps
-- 🏷️ Metadata filtering (document type, citations, publication year, field)
-- 🤖 Retrieval Augmented Generation (RAG) summaries using a local LLM
-- ⚡ High-speed similarity search using Milvus vector database
-- 🆔 Metadata enrichment with document IDs and research categorization
+## 🧠 RAG & Search Pipeline
+```text
+Query / Ingest Request (FastAPI)
+  ├── /ingest ──▶ Recursive Chunking ──▶ Embeddings (all-MiniLM-L6-v2) ──▶ Milvus Insert
+  └── /search ──▶ Query Embedding ──▶ Milvus Filtered Vector Search
+                      │
+                      ▼
+             Cross-Encoder Reranking
+                      │
+                      ▼
+             Parent Document Deduplication
+                      │
+            ┌─────────┴─────────┐
+            ▼                   ▼
+   Trend Aggregation     RAG Summary (Ollama)
+            │                   │
+            └─────────┬─────────┘
+                      ▼
+             Nuxt.js Frontend UI
+```
 
 ---
 
@@ -53,78 +45,16 @@ The platform supports:
 ### Sub-Topics Trend Analytics
 ![Sub-Topics Trends](docs/screenshots/Frontend/Sub-Topics%20Trends.png)
 
----
-
-# 🧠 RAG Pipeline
-
-The system integrates **Retrieval Augmented Generation (RAG)** to generate summaries from retrieved research papers.
-
-System Architecture:
-
-```text
-User
-↓
-Text Embedding (Sentence Transformers)
-↓
-Milvus Vector Database
-↓
-Top-K Retrieval
-↓
-Metadata Filtering
-↓
-Sub-topic Discovery
-↓
-Trend Analytics
-↓
-Reranking Pipeline
-↓
-RAG (LLM)
-↓
-Frontend UI
-```
-
-Workflow:
-```
-User Query
-↓
-Text Embedding (Sentence Transformers)
-↓
-Vector Search (Milvus)
-↓
-Top-K Document Retrieval
-↓
-Metadata Filtering
-↓
-Sub-topic Discovery
-↓
-Trend Analytics Generation
-↓
-Reranking Pipeline
-↓
-Context Construction
-↓
-Filtering & Metadata Enrichment
-↓
-Trend Analysis (Time-based Insights)
-↓
-RAG (LLM-based Contextual Summary)
-↓
-Frontend Display (FastAPI + Nuxt.js)
-```
-
-This allows the system to **combine semantic search with generative AI**, providing users with **interpretable summaries of research results**.
-
----
 
 # 🛠️ Technology Stack
 
 | Layer | Tools |
 |------|------|
-| Backend | FastAPI, Milvus, Sentence Transformers, Ollama |
-| AI/ML | all-MiniLM-L6-v2, Sentence Transformers, Scikit-learn |
-| Frontend | Nuxt.js, Vue 3, Tailwind CSS, Chart.js |
-| Data | OpenAlex API, Patent datasets |
-| Infrastructure | Docker, MinIO |
+| Backend API | FastAPI, Uvicorn, Pydantic |
+| Vector & Storage | Milvus (Docker), MinIO |
+| Embeddings & Reranking | Sentence Transformers (all-MiniLM-L6-v2), Cross-Encoder (ms-marco-MiniLM-L-6-v2) |
+| Analytics & LLM | Scikit-learn, Ollama (local LLM) |
+| Frontend | Nuxt.js (Vue 3), Tailwind CSS, Chart.js |
 
 ---
 
@@ -132,77 +62,48 @@ This allows the system to **combine semantic search with generative AI**, provid
 
 ```text
 search-platform/
-│
 ├── backend/
 │   ├── app/
 │   │   ├── main.py
-│   │   ├── data_ingestion.py
-│   │   ├── fetch_openalex.py
-│   │   ├── rag_service.py
+│   │   ├── chunking.py
 │   │   ├── reranker.py
-│   │
+│   │   ├── rag_service.py
+│   │   ├── data_ingestion.py
+│   │   └── fetch_openalex.py
+│   ├── venv/
 │   ├── Dockerfile
-│   ├── .dockerignore
-│
+│   └── .dockerignore
 ├── frontend/
 │   ├── pages/
 │   ├── components/
-│   ├── Dockerfile
-│
+│   └── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
 ├── docs/
 └── README.md
 ```
----
 
-# ✨ Key Features
-
-- 🔍 **Semantic search** across patents and research papers
-- 🤖 **RAG-based AI summaries** generated using a local LLM
-- 🧠 Automatic research sub-topic generation
-- 📈 Research trend visualization using sub-topic heatmaps
-- 🔄 Reranking pipeline for improved retrieval quality
-- 🆔 Stable document IDs with metadata enrichment
-- 📊 Temporal research analytics across publication timelines
-- 🏷️ **Advanced filtering** by:
-  - document type
-  - publication year
-  - citation count
-  - field of research
-- ⚡ **High-speed vector search** using Milvus
-- 🛡️ **Robust handling of sparse or missing data**
-
----
-
-# ⚙️ Setup
-
-## 1️⃣ Backend Setup
-
-#### Create a virtual environment:
-      cd backend
-      python -m venv venv
-
-#### Activate environment
-
-##### Windows:
-      venv\Scripts\activate
-
-##### Install dependencies:
-      pip install -r requirements.txt
-
----
+# ⚙️ Running Locally:
 
 #### Start Milvus + MinIO
-
-### Requires Docker:
-    docker-compose up -d
+    From the project root run:
+        docker-compose up -d
 
 ---
 
-## Data Ingestion
-    cd app
-    python data_ingestion.py
+#### 1️⃣ Backend Setup & Run
+
+    cd backend
+    python -m venv venv
+    venv\Scripts\activate
+    pip install -r requirements.txt
+
+---
+## Ingest sample datasets (run from backend/):
+
+#### Data Ingestion
+
+    python app/data_ingestion.py
 
 This will:
 
@@ -212,33 +113,22 @@ This will:
 
 ---
 
-#### Start Backend API
-    uvicorn main:app --reload
+#### Start the FastAPI server (run from backend/):
+    uvicorn app.main:app --reload
 
 #### Backend runs on:
-    http://localhost:8000
+    API runs at http://localhost:8000 (interactive docs at http://localhost:8000/docs).
 ---
 
-## 2️⃣ Frontend Setup
+## 2️⃣ Frontend Setup & Run
     cd frontend
     npm install
     npm run dev
 
-## Open:
+## UI runs at:
     http://localhost:3000
 ---
 
-# 🚀 Deployment
-
-| Component | Deployment |
-|----------|------------|
-| Frontend | Vercel |
-| Backend | Local / Render / Railway |
-| Vector DB | Docker (Milvus) |
-| LLM | Ollama (local) |
-
-## Frontend demo:
-    https://search-platform-five.vercel.app/
 ---
 
 # 🔎 Example Queries
@@ -251,107 +141,44 @@ This will:
 
 ---
 
-# 🧩 System Design Approach
+---
+# 🚀 Deployment & Known Limitations
 
-The system is designed with **two main components**:
+| Component | Current Setup |
+|----------|------------|
+| Frontend | Vercel ([https://search-platform-five.vercel.app/](https://search-platform-five.vercel.app/)) |
+| Backend API | Local (uvicorn); public cloud hosting not yet deployed |
+| Vector DB & Storage | Docker (Milvus, MinIO) |
+| LLM | Ollama (local) |
 
-### Backend
+## Mobile / External Access:
+    Because the backend runs locally rather than on a public cloud URL, external or mobile devices hitting the Vercel frontend cannot query local Milvus/Ollama services.
 
-The backend handles:
-
-- data ingestion
-- embedding generation
-- vector similarity search
-- metadata filtering
-- reranking pipeline
-- sub-topic generation
-- trend analytics generation
-- RAG summarization
-
-Milvus enables **semantic similarity search**, allowing the system to retrieve documents based on **meaning rather than keyword matching**.
-
-The RAG pipeline uses **Ollama-hosted LLMs** to generate **context-aware summaries** of retrieved research papers.
-
+## Evaluation & Roadmap:
+    Current verification relies on API and end-to-end search checks rather than an automated benchmark suite. Next improvements include public backend deployment, hybrid dense + keyword retrieval, and formal retrieval/groundedness evaluation metrics.
 ---
 
-### Frontend
-
-The frontend focuses on **usability and exploration**.
-
-Features include:
-
-- interactive semantic search
-- metadata filters
-- document cards
-- AI generated summaries
-- sub-topic trend heatmaps
-- research analytics visualization
-
-Nuxt.js and Tailwind CSS were used to create a **responsive and modern UI**.
-
----
-
-# ⚖️ Assumptions, Challenges, and Trade-offs
+# ⚖️ Challenges & Trade-offs:
 
 ### Challenges
-- Large dataset preprocessing
-- Vector indexing performance
-- Docker networking issues
-- Handling sparse metadata in patents
-- Frontend ↔ Backend synchronization
-- Vector schema evolution and metadata propagation
+- Large dataset preprocessing, Milvus indexing/schema consistency, Docker networking, and sparse or inconsistent metadata across patent/paper records.
 
 ### Trade-offs
 
-- Used local LLM (Ollama) instead of cloud APIs to reduce cost
-- Limited clustering complexity to maintain fast response time
+- Chose local Ollama inference over paid cloud LLM APIs to keep experimentation free of recurring token costs, and kept clustering lightweight to preserve interactive query latency.
 
 ### What Worked Well
 
-- Milvus vector search performance
-- Local RAG summarization pipeline
-- Sub-topic analytics generation
-- Interactive research trend heatmap analytics
-- Metadata filtering + reranking pipeline
-- Interactive Nuxt.js UI
+- Two-stage retrieval (all-MiniLM-L6-v2 + ms-marco-MiniLM-L-6-v2) with parent-document deduplication keeping top results diverse and relevant.
+- Local Ollama RAG summaries + Nuxt.js/Chart.js trend views working end-to-end with zero paid API dependency.
 
 ### What Could Be Improved
 
-- Public backend deployment
-- Larger dataset ingestion
-- Advanced reranking models
-- Research velocity analytics
-- Hybrid retrieval (semantic + keyword search)
+- Hybrid retrieval (dense + BM25/keyword):
+    Helps exact patent numbers, chemical/technical codes, or specific terms that pure embedding similarity can miss.
+- Public backend deployment & automated RAG evals:
+    Moving off localhost for external access and adding a fixed test set (retrieval recall/MRR + answer groundedness) instead of relying only on manual/API checks.
 
----
-
-# 🐞 Known Issues
-
-### Mobile Search
-
-The deployed frontend connects to a **local backend**, so mobile devices cannot access search results without deploying the backend publicly.
-
-### Backend Deployment
-
-Currently the backend runs locally. To enable full functionality externally, users must deploy the FastAPI server.
-
----
-
-# 📚 Notes
-
-# Embedding model used:
-    all-MiniLM-L6-v2
-
-The system can easily be extended with:
-
-- OpenAI embeddings
-- larger LLMs
-- advanced reranking models
----
-
-# 🏃 Running Locally
-
-Clone the repository and follow the **Setup** instructions.
 ---
 
 # 👤 Contact
