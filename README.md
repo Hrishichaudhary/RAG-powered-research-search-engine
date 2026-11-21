@@ -87,7 +87,7 @@ search-platform/
 
 #### Start Milvus + MinIO
 * From the project root run:
-        docker-compose up -d
+            docker-compose up -d
 
 ---
 
