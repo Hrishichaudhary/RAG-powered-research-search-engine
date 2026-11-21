@@ -152,10 +152,10 @@ This will:
 | LLM | Ollama (local) |
 
 ## Mobile / External Access:
-    Because the backend runs locally rather than on a public cloud URL, external or mobile devices hitting the Vercel frontend cannot query local Milvus/Ollama services.
+* Because the backend runs locally rather than on a public cloud URL, external or mobile devices hitting the Vercel frontend cannot query local Milvus/Ollama services.
 
 ## Evaluation & Roadmap:
-    Current verification relies on API and end-to-end search checks rather than an automated benchmark suite. Next improvements include public backend deployment, hybrid dense + keyword retrieval, and formal retrieval/groundedness evaluation metrics.
+* Current verification relies on API and end-to-end search checks rather than an automated benchmark suite. Next improvements include public backend deployment, hybrid dense + keyword retrieval, and formal retrieval/groundedness evaluation metrics.
 ---
 
 # ⚖️ Challenges & Trade-offs:
