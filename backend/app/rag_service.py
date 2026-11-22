@@ -2,7 +2,7 @@ import requests
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 
-MODEL = "gemma3:1b"   # use the model you already downloaded
+MODEL = "gemma3:1b"
 
 
 def generate_rag_summary(query, documents):
