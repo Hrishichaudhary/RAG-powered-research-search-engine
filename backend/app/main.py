@@ -1,8 +1,8 @@
 import logging
 import os
-import sys
 import uuid
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, status
@@ -10,10 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from pymilvus import Collection, connections, list_collections, utility
 from sentence_transformers import SentenceTransformer
-from sklearn.feature_extraction.text import TfidfVectorizer
 
 from app.chunking import chunk_document_record, deduplicate_by_parent
-from app.rag_service import generate_rag_summary
+from app.rag_service import generate_document_summary, generate_rag_summary
 from app.reranker import rerank_documents
 
 logging.basicConfig(
@@ -27,9 +26,46 @@ MILVUS_PORT = os.getenv("MILVUS_PORT", "19530")
 COLLECTION_NAME = os.getenv("MILVUS_COLLECTION", "documents")
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 
+_collection: Optional[Collection] = None
+_embedding_model: Optional[SentenceTransformer] = None
+
+
+def _get_embedding_model() -> SentenceTransformer:
+    global _embedding_model
+    if _embedding_model is None:
+        _embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+    return _embedding_model
+
+
+def _ensure_collection() -> Collection:
+    global _collection
+    if not connections.has_connection("default"):
+        connections.connect(alias="default", host=MILVUS_HOST, port=MILVUS_PORT)
+
+    if not utility.has_collection(COLLECTION_NAME):
+        raise RuntimeError(f"Milvus collection '{COLLECTION_NAME}' does not exist")
+
+    if _collection is None:
+        _collection = Collection(COLLECTION_NAME)
+        _collection.load()
+    return _collection
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    try:
+        _ensure_collection()
+        _get_embedding_model()
+        logger.info("Startup ready: Milvus connected and collection '%s' loaded", COLLECTION_NAME)
+    except Exception as exc:
+        logger.warning("Startup in degraded mode: %s", exc)
+    yield
+
+
 app = FastAPI(
     title="RAG Research Search & Ingestion API",
-    version="1.1.0",
+    version="1.2.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -52,6 +88,7 @@ class Query(BaseModel):
 
 class DocumentResult(BaseModel):
     id: str
+    parent_id: Optional[str] = None
     title: str
     abstract: str
     doc_type: str
@@ -64,7 +101,7 @@ class DocumentResult(BaseModel):
 class SearchResponse(BaseModel):
     documents: List[DocumentResult]
     trends: Dict[str, Dict[str, int]]
-    velocity: Dict[str, Any]
+    velocity: Dict[str, int]
     ai_summary: str
 
 
@@ -88,6 +125,17 @@ class IngestResponse(BaseModel):
     chunk_ids: List[str]
 
 
+class SummarizeDocRequest(BaseModel):
+    title: str = Field(default="Untitled")
+    abstract: str = Field(..., min_length=1)
+    doc_type: str = Field(default="paper")
+    pub_date: str = Field(default="")
+
+
+class SummarizeDocResponse(BaseModel):
+    summary: str
+
+
 class HealthResponse(BaseModel):
     status: str
     milvus_connected: bool
@@ -95,46 +143,15 @@ class HealthResponse(BaseModel):
     collection: str
 
 
-try:
-    connections.connect(alias="default", host=MILVUS_HOST, port=MILVUS_PORT)
-    logger.info("MILVUS CONNECTED")
-except Exception as exc:
-    logger.exception("Failed to connect to Milvus: %s", exc)
-    sys.exit(1)
-
-if not utility.has_collection(COLLECTION_NAME):
-    logger.error("%s collection missing", COLLECTION_NAME)
-    sys.exit(1)
-
-collection = Collection(COLLECTION_NAME)
-collection.load()
-logger.info("Collection loaded")
-
-model = SentenceTransformer(EMBEDDING_MODEL_NAME)
-
-
-def generate_subtopic_names(documents, labels, n_clusters):
-    tfidf = TfidfVectorizer(max_features=3, stop_words="english")
-    clusters = [[] for _ in range(n_clusters)]
-
-    for doc, label in zip(documents, labels):
-        clusters[label].append(doc.get("abstract", ""))
-
-    names = []
-    for cluster in clusters:
-        if not cluster:
-            names.append("Miscellaneous")
-            continue
-        try:
-            tfidf.fit_transform(cluster)
-            names.append(" ".join(tfidf.get_feature_names_out()[:2]))
-        except Exception:
-            names.append("Miscellaneous")
-    return names
-
-
 def _escape_milvus_str(value: str) -> str:
     return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
+def _normalize_date_bound(bound: str, is_end: bool) -> str:
+    cleaned = bound.strip()
+    if len(cleaned) == 4 and cleaned.isdigit():
+        return f"{cleaned}-12-31" if is_end else f"{cleaned}-01-01"
+    return cleaned
 
 
 def _build_filter_expr(query: Query) -> Optional[str]:
@@ -150,7 +167,34 @@ def _build_filter_expr(query: Query) -> Optional[str]:
         safe_field = _escape_milvus_str(query.field_of_research.strip())
         expr_parts.append(f"field_of_research like '%{safe_field}%'")
 
+    if query.date_range and len(query.date_range) == 2:
+        start_raw, end_raw = query.date_range[0].strip(), query.date_range[1].strip()
+        if start_raw:
+            start_val = _escape_milvus_str(_normalize_date_bound(start_raw, is_end=False))
+            expr_parts.append(f"pub_date >= '{start_val}'")
+        if end_raw:
+            end_val = _escape_milvus_str(_normalize_date_bound(end_raw, is_end=True))
+            expr_parts.append(f"pub_date <= '{end_val}'")
+
     return " and ".join(expr_parts) if expr_parts else None
+
+
+def _compute_year_velocity(docs: List[Dict[str, Any]]) -> Dict[str, int]:
+    year_counts: Dict[str, int] = defaultdict(int)
+    for doc in docs:
+        year = str(doc.get("pub_date", ""))[:4]
+        if year.isdigit():
+            year_counts[year] += 1
+
+    sorted_years = sorted(year_counts.keys())
+    velocity: Dict[str, int] = {}
+    for idx, year in enumerate(sorted_years):
+        if idx == 0:
+            velocity[year] = year_counts[year]
+        else:
+            prev_year = sorted_years[idx - 1]
+            velocity[year] = year_counts[year] - year_counts[prev_year]
+    return velocity
 
 
 @app.get("/")
@@ -158,33 +202,44 @@ def root() -> Dict[str, str]:
     return {"message": "Backend running"}
 
 
+@app.get("/ping")
+def ping() -> Dict[str, str]:
+    return {"status": "alive"}
+
+
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     try:
+        col = _ensure_collection()
         connected = connections.has_connection("default")
         exists = utility.has_collection(COLLECTION_NAME)
+        ready = bool(connected and exists and col is not None)
+        if not ready:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Vector store not ready",
+            )
         return HealthResponse(
-            status="ok" if (connected and exists) else "degraded",
+            status="ok",
             milvus_connected=connected,
             collection_loaded=exists,
             collection=COLLECTION_NAME,
         )
+    except HTTPException:
+        raise
     except Exception as exc:
-        logger.exception("Health check failed: %s", exc)
+        logger.warning("Health check degraded: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Vector store health check failed",
         ) from exc
 
 
-@app.get("/ping")
-def ping() -> Dict[str, str]:
-    return {"status": "alive"}
-
-
 @app.get("/list_collections")
 def collections_api() -> Dict[str, List[str]]:
     try:
+        if not connections.has_connection("default"):
+            connections.connect(alias="default", host=MILVUS_HOST, port=MILVUS_PORT)
         return {"collections": list_collections()}
     except Exception as exc:
         logger.exception("Failed to list collections: %s", exc)
@@ -197,6 +252,24 @@ def collections_api() -> Dict[str, List[str]]:
 @app.post("/test")
 def test() -> Dict[str, bool]:
     return {"ok": True}
+
+
+@app.post("/summarize-doc", response_model=SummarizeDocResponse)
+def summarize_doc(payload: SummarizeDocRequest) -> SummarizeDocResponse:
+    try:
+        summary = generate_document_summary(
+            title=payload.title,
+            abstract=payload.abstract,
+            doc_type=payload.doc_type,
+            pub_date=payload.pub_date,
+        )
+        return SummarizeDocResponse(summary=summary)
+    except Exception as exc:
+        logger.warning("Per-document summary failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to generate document summary",
+        ) from exc
 
 
 @app.post("/ingest", response_model=IngestResponse, status_code=status.HTTP_201_CREATED)
@@ -231,26 +304,31 @@ def ingest_document(payload: IngestRequest) -> IngestResponse:
         )
 
     try:
+        col = _ensure_collection()
+        model = _get_embedding_model()
+
         texts_to_embed = [f"{c['title']}. {c['abstract']}" for c in chunks]
         vectors = model.encode(texts_to_embed)
 
         rows = [
             {
                 "id": chunk["id"],
+                "parent_id": chunk["parent_id"],
+                "chunk_index": int(chunk["chunk_index"]),
                 "vector": vectors[idx].tolist(),
                 "title": chunk["title"],
                 "abstract": chunk["abstract"],
                 "doc_type": chunk["doc_type"],
                 "pub_date": chunk["pub_date"],
-                "citation_count": chunk["citation_count"],
+                "citation_count": int(chunk["citation_count"]),
                 "field_of_research": chunk["field_of_research"],
                 "sub_topic": chunk["sub_topic"],
             }
             for idx, chunk in enumerate(chunks)
         ]
 
-        collection.insert(rows)
-        collection.flush()
+        col.insert(rows)
+        col.flush()
     except Exception as exc:
         logger.exception("Document ingestion failed for parent_id=%s: %s", parent_id, exc)
         raise HTTPException(
@@ -276,17 +354,21 @@ def search(query: Query) -> SearchResponse:
         )
 
     try:
+        col = _ensure_collection()
+        model = _get_embedding_model()
+
         query_vector = model.encode([cleaned_text])[0]
         expr = _build_filter_expr(query)
-        search_limit = min(max(query.top_k * 2, query.top_k), 50)
+        search_limit = min(max(query.top_k * 3, query.top_k), 60)
 
-        results = collection.search(
+        results = col.search(
             data=[query_vector],
             anns_field="vector",
             param={"metric_type": "L2", "params": {"nprobe": 10}},
             limit=search_limit,
             expr=expr,
             output_fields=[
+                "parent_id",
                 "title",
                 "abstract",
                 "doc_type",
@@ -303,6 +385,7 @@ def search(query: Query) -> SearchResponse:
             candidates.append(
                 {
                     "id": str(hit.id),
+                    "parent_id": str(entity.get("parent_id") or ""),
                     "title": entity.get("title") or "Untitled",
                     "abstract": entity.get("abstract") or "",
                     "doc_type": entity.get("doc_type") or "unknown",
@@ -332,11 +415,12 @@ def search(query: Query) -> SearchResponse:
                 trends_map[topic][year] += 1
 
         trends = {topic: dict(years) for topic, years in trends_map.items()}
+        velocity = _compute_year_velocity(final_docs)
 
         return SearchResponse(
             documents=[DocumentResult(**doc) for doc in final_docs],
             trends=trends,
-            velocity={},
+            velocity=velocity,
             ai_summary=summary,
         )
     except HTTPException:

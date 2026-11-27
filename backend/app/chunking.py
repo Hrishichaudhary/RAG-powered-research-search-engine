@@ -1,46 +1,47 @@
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
-def chunk_text(
-    text: str,
-    chunk_size: int = 500,
-    chunk_overlap: int = 80,
-) -> List[str]:
-    """
-    Split text into overlapping chunks using natural boundaries
-    (paragraphs -> lines -> sentences -> words -> characters).
-    """
-    if not text or not text.strip():
-        return []
+def _find_split_index(text: str, start: int, target_end: int) -> int:
+    text_len = len(text)
+    if target_end >= text_len:
+        return text_len
 
+    window_start = max(start + 1, target_end - 80)
+    window = text[window_start:target_end]
+
+    # Prefer sentence boundaries near target_end
+    sentence_matches = list(re.finditer(r"[.!?](?:\s+|$)", window))
+    if sentence_matches:
+        return window_start + sentence_matches[-1].end()
+
+    # Otherwise snap back to the last whitespace to avoid splitting words
+    last_space = text.rfind(" ", start + 1, target_end)
+    if last_space > start:
+        return last_space
+
+    return target_end
+
+
+def chunk_text(text: str, chunk_size: int = 500, chunk_overlap: int = 80) -> List[str]:
     if chunk_size <= 0:
         raise ValueError("chunk_size must be greater than 0")
     if chunk_overlap < 0 or chunk_overlap >= chunk_size:
-        raise ValueError("chunk_overlap must be >= 0 and smaller than chunk_size")
+        raise ValueError("chunk_overlap must be >= 0 and less than chunk_size")
 
-    cleaned = re.sub(r"\r\n", "\n", text).strip()
-    if len(cleaned) <= chunk_size:
-        return [cleaned]
+    cleaned = " ".join(text.split())
+    if not cleaned:
+        return []
 
     chunks: List[str] = []
     start = 0
     text_len = len(cleaned)
-    separators = ["\n\n", "\n", ". ", " "]
 
     while start < text_len:
-        end = min(start + chunk_size, text_len)
-
-        if end < text_len:
-            best_split = -1
-            window = cleaned[start:end]
-            for sep in separators:
-                idx = window.rfind(sep)
-                if idx != -1 and idx > int(chunk_size * 0.4):
-                    best_split = start + idx + (len(sep) if sep == ". " else 0)
-                    break
-            if best_split > start:
-                end = best_split
+        raw_end = min(start + chunk_size, text_len)
+        end = _find_split_index(cleaned, start, raw_end)
+        if end <= start:
+            end = raw_end
 
         chunk = cleaned[start:end].strip()
         if chunk:
@@ -49,10 +50,18 @@ def chunk_text(
         if end >= text_len:
             break
 
-        next_start = max(end - chunk_overlap, start + 1)
+        next_start = max(0, end - chunk_overlap)
+        if next_start <= start:
+            next_start = end
         start = next_start
 
     return chunks
+
+
+def _build_chunk_id(parent_id: str, idx: int, max_len: int = 50) -> str:
+    suffix = f"_c{idx}"
+    allowed_parent_len = max(1, max_len - len(suffix))
+    return f"{parent_id[:allowed_parent_len]}{suffix}"[:max_len]
 
 
 def chunk_document_record(
@@ -60,69 +69,53 @@ def chunk_document_record(
     chunk_size: int = 500,
     chunk_overlap: int = 80,
 ) -> List[Dict[str, Any]]:
-    """
-    Convert a single document dict into chunk records while preserving metadata.
-    """
-    parent_id = str(doc.get("id") or doc.get("parent_id") or "doc_0")
-    title = str(doc.get("title") or "Untitled")
-    content = str(
-        doc.get("content")
-        or doc.get("text")
-        or doc.get("abstract")
-        or ""
-    ).strip()
+    parent_id = str(doc.get("id") or "").strip()
+    if not parent_id:
+        raise ValueError("Document id is required")
 
-    combined_text = f"{title}. {content}".strip() if content else title
-    text_chunks = chunk_text(
-        combined_text,
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-    )
+    raw_text = str(doc.get("content") if "content" in doc else doc.get("abstract", "")).strip()
+    text_chunks = chunk_text(raw_text, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
-    chunked_records: List[Dict[str, Any]] = []
-    for idx, part in enumerate(text_chunks):
-        chunked_records.append(
+    records: List[Dict[str, Any]] = []
+    for idx, chunk_str in enumerate(text_chunks):
+        records.append(
             {
-                "id": f"{parent_id}_c{idx}"[:50],
-                "parent_id": parent_id,
+                "id": _build_chunk_id(parent_id, idx, max_len=50),
+                "parent_id": parent_id[:50],
                 "chunk_index": idx,
-                "title": title[:512],
-                "abstract": part[:65535],
-                "doc_type": str(doc.get("doc_type") or "paper")[:20],
-                "pub_date": str(doc.get("pub_date") or "1970-01-01")[:20],
+                "title": str(doc.get("title") or "Untitled")[:512],
+                "abstract": chunk_str[:65535],
+                "doc_type": str(doc.get("doc_type") or "unknown")[:20],
+                "pub_date": str(doc.get("pub_date") or "Unknown")[:20],
                 "citation_count": int(doc.get("citation_count") or 0),
                 "field_of_research": str(doc.get("field_of_research") or "Unknown")[:100],
                 "sub_topic": str(doc.get("sub_topic") or "General")[:120],
             }
         )
 
-    return chunked_records
+    return records
 
 
-def deduplicate_by_parent(
-    documents: List[Dict[str, Any]],
-    limit: Optional[int] = None,
-) -> List[Dict[str, Any]]:
-    """
-    Keep the highest-ranked chunk per parent document (based on existing order).
-    Falls back to chunk 'id' if 'parent_id' is absent.
-    """
-    seen = set()
+def _extract_parent_id(doc: Dict[str, Any]) -> str:
+    if doc.get("parent_id"):
+        return str(doc["parent_id"])
+    doc_id = str(doc.get("id") or "")
+    if "_c" in doc_id:
+        return doc_id.rsplit("_c", 1)[0]
+    return doc_id
+
+
+def deduplicate_by_parent(documents: List[Dict[str, Any]], limit: int = 10) -> List[Dict[str, Any]]:
+    seen_parents = set()
     deduped: List[Dict[str, Any]] = []
 
     for doc in documents:
-        doc_id = str(doc.get("id", ""))
-        parent_key = doc.get("parent_id")
-        if not parent_key and "_c" in doc_id:
-            parent_key = doc_id.rsplit("_c", 1)[0]
-        parent_key = str(parent_key or doc_id)
-
-        if parent_key in seen:
+        parent_key = _extract_parent_id(doc)
+        if not parent_key or parent_key in seen_parents:
             continue
-        seen.add(parent_key)
+        seen_parents.add(parent_key)
         deduped.append(doc)
-
-        if limit is not None and len(deduped) >= limit:
+        if len(deduped) >= limit:
             break
 
     return deduped
